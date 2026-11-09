@@ -1,6 +1,6 @@
 [project]
 name = "django-debug-toolbar-hijack"
-version = "0.1.0b1"
+version = "0.1.0"
 description = "A django-debug-toolbar panel for impersonating users via django-hijack"
 readme = "README.md"
 authors = [
