@@ -1,0 +1,80 @@
+# This workflow is managed by gh actions-lock.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.7
+        with:
+          cache: true
+      - run: mise run lint
+      - run: mise run typecheck
+
+  test:
+    name: Test (Python ${{ matrix.python }}, Django ${{ matrix.django }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        django: ["5.2", "6.0"]
+        exclude:
+          - python: "3.10"
+            django: "6.0"
+          - python: "3.11"
+            django: "6.0"
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.7
+        with:
+          cache: true
+      - run: uv run --python "${{ matrix.python }}" --with "django~=${{ matrix.django }}.0" pytest
+
+  test-lowest:
+    name: Test (lowest dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.7
+        with:
+          cache: true
+      - run: mise run test:lowest
+
+  ci-success:
+    name: CI success
+    if: always()
+    needs: [lint, test, test-lowest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that all jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "A required job did not succeed: $RESULTS"
+              exit 1
+            fi
+          done

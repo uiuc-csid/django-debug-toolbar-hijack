@@ -2,9 +2,17 @@ amends "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Config.
 import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Builtins.pkl"
 // Using a coding agent? See https://hk.jdx.dev/agents
 
+// ruff and mypy come from the uv `dev` group; mise activates .venv (and
+// `mise deps` keeps it synced), so the builtins find the locked versions.
 steps {
     ["ruff"] = Builtins.ruff
     ["ruff-format"] = Builtins.ruff_format
+    // The Django plugin needs the whole project, so mypy ignores {{ files }}.
+    ["mypy"] = (Builtins.mypy) {
+        check = "mypy src tests"
+    }
+    ["trailing-whitespace"] = Builtins.trailing_whitespace
+    ["newlines"] = Builtins.newlines
     // Builtins.markdown_lint targets markdownlint-cli; swap in markdownlint-cli2,
     // which reads .markdownlint-cli2.jsonc.
     ["markdownlint-cli2"] = (Builtins.markdown_lint) {

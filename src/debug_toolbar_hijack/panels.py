@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 from debug_toolbar.panels import Panel
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from django.urls import reverse
 from django.utils.module_loading import import_string
@@ -25,12 +31,13 @@ class HijackPanel(Panel):
     user_limit = 100
 
     @property
-    def nav_subtitle(self):
-        count = self.get_stats().get("user_count", 0)
+    def nav_subtitle(self) -> str:
+        # Panel.get_stats / record_stats are unannotated in debug_toolbar.
+        count = self.get_stats().get("user_count", 0)  # type: ignore[no-untyped-call]
         return _("%(count)d hijackable") % {"count": count}
 
-    def generate_stats(self, request, response):
-        get_hijackable_users = import_string(settings.HIJACK_USER_QUERYSET)
+    def generate_stats(self, request: HttpRequest, response: HttpResponse) -> None:
+        get_hijackable_users = import_string(settings.HIJACK_USER_QUERYSET)  # type: ignore[misc]
         hijacker = getattr(request, "user", None)
         is_authenticated = hijacker is not None and hijacker.is_authenticated
 
@@ -38,7 +45,7 @@ class HijackPanel(Panel):
         history_pks = session.get("hijack_history", []) if session is not None else []
         history = self._resolve_history(history_pks)
 
-        users = []
+        users: list[dict[str, str]] = []
         if is_authenticated:
             queryset = get_hijackable_users(user=hijacker).order_by("username")
             users = [
@@ -46,7 +53,7 @@ class HijackPanel(Panel):
                 for user in queryset[: self.user_limit]
             ]
 
-        self.record_stats(
+        self.record_stats(  # type: ignore[no-untyped-call]
             {
                 "users": users,
                 "user_count": len(users),
@@ -60,7 +67,7 @@ class HijackPanel(Panel):
             }
         )
 
-    def _resolve_history(self, history_pks):
+    def _resolve_history(self, history_pks: Sequence[Any]) -> list[str]:
         """Map the session's hijacker pks to display labels, preserving order."""
         if not history_pks:
             return []
