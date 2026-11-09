@@ -1,55 +1,35 @@
 #!/usr/bin/env bash
-#MISE description="Bump the version, update CHANGELOG.md, then commit and tag a release"
+#MISE description="Open a release PR: bump the version and update CHANGELOG.md on a release/vX branch"
 #USAGE arg "<version>" help="An explicit version (e.g. 0.1.0b2) or a `uv version --bump` keyword: major, minor, patch, stable, alpha, beta, rc, post or dev"
 #USAGE flag "-n --dry-run" help="Show every step, the new version and the CHANGELOG.md diff without changing anything"
-#USAGE flag "--push" help="Push the release commit and tag to origin (this triggers the Release workflow)"
+#USAGE flag "--no-pr" help="Stop after the local commit and print the push and PR commands"
 #
-# Releases are cut from an up-to-date, clean `main`. Every check (including
-# the CHANGELOG.md rewrite) runs before anything is modified, so a refusal
-# leaves the tree untouched.
+# Step one of a release; `mise run release:tag` is step two. `main` is
+# protected (PRs and CI only), so the release commit goes through a PR:
+# this task creates `release/vX` from an up-to-date, clean `main`, commits the
+# version bump and changelog, pushes the branch and opens the PR. It never
+# pushes to `main` and never creates a tag.
+#
+# Every check (including the CHANGELOG.md rewrite) runs before anything is
+# modified, so a refusal leaves the tree untouched.
 #
 # Empty [Unreleased] rule: a release must have changelog entries, except a
 # pre-release that follows another pre-release of the same version (for
 # example 0.1.0b1 -> 0.1.0b2 or 0.1.0b2 -> 0.1.0rc1). Such a release gets a
 # "No changes since X." line. A final release (0.1.0rc1 -> 0.1.0) or a
 # pre-release of a new version (0.1.0b1 -> 0.2.0b1) always needs entries.
-set -euo pipefail
+set -Eeuo pipefail
 
 bump_keywords="major minor patch stable alpha beta rc post dev"
-changelog=CHANGELOG.md
-branch=main
-remote=origin
 
 version_arg=${usage_version:?missing version argument}
 dry_run=false
-push=false
+open_pr=true
 [ "${usage_dry_run:-false}" = true ] && dry_run=true
-[ "${usage_push:-false}" = true ] && push=true
+[ "${usage_no_pr:-false}" = true ] && open_pr=false
 
-cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
-
-step() { printf '\n==> %s\n' "$*"; }
-info() { printf '    %s\n' "$*"; }
-die() {
-	printf 'error: %s\n' "$*" >&2
-	exit 1
-}
-# Run a command that changes something, or only print it in a dry run.
-run() {
-	if $dry_run; then
-		printf '    [dry-run] would run:'
-		printf ' %q' "$@"
-		printf '\n'
-	else
-		printf '    $'
-		printf ' %q' "$@"
-		printf '\n'
-		"$@"
-	fi
-}
-
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
+# shellcheck source=mise-tasks/release/.lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/.lib.sh"
 
 if $dry_run; then
 	printf 'Dry run: nothing will be changed.\n'
@@ -58,21 +38,15 @@ fi
 # --- 1. Preconditions --------------------------------------------------------
 step "1. Check the repository state"
 
-[ -z "$(git status --porcelain)" ] || die "the working tree is not clean; commit or stash your changes first"
-info "working tree is clean"
+require_clean_tree
+require_on_main
+require_up_to_date
 
-current_branch=$(git symbolic-ref --short -q HEAD || true)
-[ "$current_branch" = "$branch" ] || die "releases are cut from '$branch', but the current branch is '${current_branch:-(detached HEAD)}'"
-info "on branch $branch"
-
-git fetch --quiet "$remote" "$branch" || die "could not fetch $remote/$branch"
-local_rev=$(git rev-parse HEAD)
-remote_rev=$(git rev-parse "refs/remotes/$remote/$branch")
-if [ "$local_rev" != "$remote_rev" ]; then
-	read -r ahead behind < <(git rev-list --left-right --count "HEAD...$remote/$branch")
-	die "$branch is not up to date with $remote/$branch ($ahead ahead, $behind behind)"
+if $open_pr; then
+	command -v gh >/dev/null || die "gh is not installed; install it or pass --no-pr"
+	gh auth status >/dev/null 2>&1 || die "gh is not logged in; run 'gh auth login' or pass --no-pr"
+	info "gh is installed and logged in"
 fi
-info "$branch is up to date with $remote/$branch"
 
 current_version=$(uv version --short)
 case " $bump_keywords " in
@@ -100,20 +74,11 @@ print(
 EOF
 ) || exit 1
 tag="v$new_version"
-info "version: $current_version -> $new_version (tag $tag)"
+release_branch="release/$tag"
+info "version: $current_version -> $new_version (branch $release_branch, tag $tag)"
 
-if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-	die "tag $tag already exists locally"
-fi
-set +e
-git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" >/dev/null
-ls_remote_status=$?
-set -e
-case $ls_remote_status in
-0) die "tag $tag already exists on $remote" ;;
-2) info "tag $tag does not exist locally or on $remote" ;;
-*) die "could not list tags on $remote" ;;
-esac
+require_ref_absent "refs/tags/$tag" "tag $tag"
+require_ref_absent "refs/heads/$release_branch" "branch $release_branch"
 
 # Build the new CHANGELOG.md now, so an empty [Unreleased] is caught before
 # anything is changed.
@@ -127,7 +92,7 @@ if [ "$new_is_pre" = true ] && [ "$current_is_pre" = true ] && [ "$same_release"
 fi
 release_date=$(date +%Y-%m-%d)
 new_changelog="$tmpdir/$changelog"
-set +e
+awk_status=0
 awk -v version="$new_version" -v date="$release_date" -v tag="$tag" -v note="$empty_note" '
 function flush(   i, first, last) {
 	first = 1; last = n
@@ -169,9 +134,7 @@ END {
 	if (state == 1) flush()
 	if (!links) exit 4
 }
-' "$changelog" >"$new_changelog"
-awk_status=$?
-set -e
+' "$changelog" >"$new_changelog" || awk_status=$?
 case $awk_status in
 0)
 	if [ -n "$empty_note" ] && grep -qF -- "$empty_note" "$new_changelog"; then
@@ -181,21 +144,44 @@ case $awk_status in
 	fi
 	;;
 3) die "the [Unreleased] section of $changelog is empty; add entries first (only a pre-release that follows a pre-release of the same version may be empty)" ;;
-4) info "warning: no '[Unreleased]: .../compare/<tag>...HEAD' link in $changelog; compare links not updated" ;;
+4) warn "no '[Unreleased]: .../compare/<tag>...HEAD' link in $changelog; compare links not updated" ;;
 *) die "could not update $changelog" ;;
 esac
+
+# The PR body: the new changelog section (without its heading), then the next step.
+pr_body="$tmpdir/pr-body.md"
+{
+	awk -v heading="## [$new_version] - " '
+		index($0, heading) == 1 { found = 1; next }
+		found && (/^## \[/ || /^\[[^]]+\]: /) { exit }
+		found { print }
+	' "$new_changelog" | sed -e '/./,$!d'
+	cat <<EOF
+---
+
+Release $tag. After this PR is merged, tag the merge and publish to PyPI from an up-to-date \`main\`:
+
+\`\`\`bash
+git switch $branch && git pull --ff-only
+mise run release:tag --dry-run
+mise run release:tag --push
+\`\`\`
+
+Pushing the tag starts the Release workflow (\`.github/workflows/release.yml\`), which publishes to PyPI.
+EOF
+} >"$pr_body"
 
 # --- 2. CI -------------------------------------------------------------------
 step "2. Run CI"
 run mise run ci
 
-# From here on the tree is modified; say how to back out if a step fails.
-if ! $dry_run; then
-	trap 'rm -rf "$tmpdir"; printf "\nerror: the release did not finish. To undo local changes: git checkout -- pyproject.toml uv.lock %s\n" "$changelog" >&2' ERR
-fi
+# --- 3. Branch ---------------------------------------------------------------
+step "3. Create $release_branch from $branch"
+run git switch --quiet -c "$release_branch"
+$dry_run || undo_hint="To start over: git checkout -- pyproject.toml uv.lock $changelog && git switch $branch && git branch -D $release_branch"
 
-# --- 3. Version --------------------------------------------------------------
-step "3. Bump the version to $new_version"
+# --- 4. Version --------------------------------------------------------------
+step "4. Bump the version to $new_version"
 run uv version "${uv_version_args[@]}"
 if ! $dry_run; then
 	[ "$(uv version --short)" = "$new_version" ] || die "uv set an unexpected version: $(uv version --short)"
@@ -203,8 +189,8 @@ else
 	info "pyproject.toml and uv.lock: $current_version -> $new_version"
 fi
 
-# --- 4. Changelog ------------------------------------------------------------
-step "4. Update $changelog"
+# --- 5. Changelog ------------------------------------------------------------
+step "5. Update $changelog"
 if $dry_run; then
 	diff -u --label "a/$changelog" --label "b/$changelog" "$changelog" "$new_changelog" || true
 else
@@ -212,28 +198,40 @@ else
 	git --no-pager diff --stat
 fi
 
-# --- 5. Commit and tag -------------------------------------------------------
-step "5. Commit and tag $tag"
+# --- 6. Commit ---------------------------------------------------------------
+step "6. Commit Release $tag on $release_branch"
 run git add pyproject.toml uv.lock "$changelog"
 run git commit --quiet -m "Release $tag"
-run git tag -a "$tag" -m "Release $tag"
 
-# --- 6. Push -----------------------------------------------------------------
-push_cmd=(git push --atomic "$remote" "$branch" "$tag")
-step "6. Push"
-if $push; then
+# --- 7. Push and open the PR ---------------------------------------------------
+push_cmd=(git push --set-upstream "$remote" "$release_branch")
+pr_cmd=(gh pr create --base "$branch" --head "$release_branch" --title "Release $tag" --body-file "$pr_body")
+step "7. Push $release_branch and open a PR to $branch"
+if $open_pr; then
 	run "${push_cmd[@]}"
-	info "pushing $tag triggers the Release workflow (.github/workflows/release.yml), which publishes to PyPI"
+	$dry_run || undo_hint="$release_branch is pushed; open the PR with: gh pr create --base $branch --head $release_branch --title 'Release $tag' (the body is the [$new_version] section of $changelog)"
+	run "${pr_cmd[@]}"
+	undo_hint=""
+	if $dry_run; then
+		info "PR body:"
+		sed 's/^/      | /' "$pr_body"
+	fi
 else
-	info "not pushing (pass --push to push). To publish, run:"
-	printf '\n       %s\n\n' "${push_cmd[*]}"
-	info "Pushing $tag triggers the Release workflow (.github/workflows/release.yml), which publishes to PyPI."
+	# --no-pr: keep the body somewhere that outlives this run.
+	if ! $dry_run; then
+		saved_body="$(git rev-parse --git-dir)/RELEASE_PR_BODY.md"
+		cp "$pr_body" "$saved_body"
+		pr_cmd=(gh pr create --base "$branch" --head "$release_branch" --title "Release $tag" --body-file "$saved_body")
+	fi
+	info "not pushing (--no-pr). To push the branch and open the PR, run:"
+	printf '\n'
+	show_cmd "${push_cmd[@]}"
+	show_cmd "${pr_cmd[@]}"
 fi
 
 if $dry_run; then
 	printf '\nDry run complete: %s -> %s. Nothing was changed.\n' "$current_version" "$new_version"
-elif $push; then
-	printf '\nReleased and pushed %s.\n' "$tag"
 else
-	printf '\nReleased %s locally.\n' "$tag"
+	printf '\nRelease %s committed on %s.\n' "$tag" "$release_branch"
+	printf 'Next: merge the PR, then on an up-to-date %s run: mise run release:tag\n' "$branch"
 fi

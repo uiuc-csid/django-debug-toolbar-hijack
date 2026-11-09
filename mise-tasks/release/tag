@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+#MISE description="Tag the merged release PR on main; --push publishes it to PyPI"
+#USAGE flag "-n --dry-run" help="Run the checks and show the tag without creating it"
+#USAGE flag "--push" help="Push the tag to origin, which starts the Release workflow and publishes to PyPI"
+#
+# Step two of a release, run after the PR from `mise run release:prepare` is
+# merged. Reads the version from pyproject.toml, then creates the annotated
+# tag vX. Only the tag is pushed; `main` is never pushed.
+#
+# Which commit is tagged: the commit on main's first-parent history that set
+# the current version, which is the merge (or squash) of the release PR. When
+# it's HEAD, that's HEAD. When other PRs merged after it, the task still tags
+# the release PR's merge and warns, rather than tagging HEAD: the published
+# package then matches exactly what was reviewed in the release PR and what
+# CHANGELOG.md describes, and unreleased later changes aren't shipped under
+# the release's version. (Tagging the release branch's own commit would also
+# skip anything that merged into main between branching and merging.)
+set -Eeuo pipefail
+
+dry_run=false
+push=false
+[ "${usage_dry_run:-false}" = true ] && dry_run=true
+[ "${usage_push:-false}" = true ] && push=true
+
+# shellcheck source=mise-tasks/release/.lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/.lib.sh"
+
+if $dry_run; then
+	printf 'Dry run: nothing will be changed.\n'
+fi
+
+# --- 1. Preconditions --------------------------------------------------------
+step "1. Check the repository state"
+
+require_clean_tree
+require_on_main
+require_up_to_date
+
+version=$(uv version --short)
+tag="v$version"
+info "version: $version (tag $tag)"
+
+grep -q "^## \[$version\]" "$changelog" || die "$changelog has no '## [$version]' section; was the release PR (mise run release:prepare) merged?"
+info "$changelog has a [$version] section"
+
+require_ref_absent "refs/tags/$tag" "tag $tag"
+
+# --- 2. Find the release commit ----------------------------------------------
+step "2. Find the commit that released $version"
+
+# Walk main's first-parent history from HEAD and stop at the first commit
+# whose pyproject.toml has another version; the one before it set $version.
+release_commit=$(
+	python - "$version" <<'EOF'
+import subprocess
+import sys
+import tomllib
+
+version = sys.argv[1]
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout
+
+
+release = None
+for commit in git("rev-list", "--first-parent", "HEAD").split():
+    try:
+        project = tomllib.loads(git("show", f"{commit}:pyproject.toml")).get("project", {})
+    except (subprocess.CalledProcessError, tomllib.TOMLDecodeError):
+        break
+    if project.get("version") != version:
+        break
+    release = commit
+if release is None:
+    sys.exit(f"error: HEAD's pyproject.toml does not have version {version}")
+print(release)
+EOF
+) || exit 1
+
+head_commit=$(git rev-parse HEAD)
+describe() { git --no-pager log -1 --format='%h %s' "$1"; }
+if [ "$release_commit" = "$head_commit" ]; then
+	info "HEAD is the release commit: $(describe HEAD)"
+else
+	warn "HEAD is not the release commit; tagging the commit that set $version instead:"
+	warn "  $(describe "$release_commit")"
+	warn "these later commits on $branch are NOT in $tag:"
+	git --no-pager log --first-parent --format='      %h %s' "$release_commit..HEAD" >&2
+fi
+
+if ! git --no-pager show "$release_commit:$changelog" | grep -q "^## \[$version\]"; then
+	die "$changelog at $(git rev-parse --short "$release_commit") has no '## [$version]' section"
+fi
+
+# --- 3. Tag ------------------------------------------------------------------
+step "3. Create the annotated tag $tag"
+run git tag -a "$tag" -m "Release $tag" "$release_commit"
+
+# --- 4. Push -----------------------------------------------------------------
+push_cmd=(git push "$remote" "refs/tags/$tag")
+step "4. Push $tag"
+if $push; then
+	$dry_run || undo_hint="$tag was created locally but not pushed. Retry with: ${push_cmd[*]}"
+	run "${push_cmd[@]}"
+	undo_hint=""
+	info "pushing $tag starts the Release workflow (.github/workflows/release.yml), which publishes to PyPI"
+else
+	info "not pushing (pass --push to push). Pushing $tag starts the Release workflow, which publishes to PyPI. To publish, run:"
+	printf '\n'
+	show_cmd "${push_cmd[@]}"
+fi
+
+if $dry_run; then
+	printf '\nDry run complete: would tag %s at %s. Nothing was changed.\n' "$tag" "$(git rev-parse --short "$release_commit")"
+elif $push; then
+	printf '\nTagged and pushed %s.\n' "$tag"
+else
+	printf '\nTagged %s locally (not pushed). To undo: git tag -d %s\n' "$tag" "$tag"
+fi
+if ! $dry_run && git rev-parse -q --verify "refs/heads/release/$tag" >/dev/null; then
+	info "The local branch release/$tag can be deleted: git branch -D release/$tag"
+fi
