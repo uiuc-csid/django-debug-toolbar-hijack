@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, Protocol
 
 from debug_toolbar.panels import Panel
@@ -12,10 +12,12 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
-from django.urls import reverse
+from django.templatetags.static import static
+from django.urls import URLPattern, URLResolver, path, reverse
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
+from debug_toolbar_hijack.search import DEFAULT_ADMIN_SITE
 from debug_toolbar_hijack.users import superusers_only
 
 
@@ -54,6 +56,21 @@ def get_hijackable_users(
     return factory(user=user).order_by(get_user_model().USERNAME_FIELD)
 
 
+def serialize_users(
+    users: Iterable[Any], limit: int
+) -> tuple[list[dict[str, str]], bool]:
+    """Return up to ``limit`` users as ``{"pk", "label"}`` dicts.
+
+    Pass ``limit + 1`` rows to learn whether the list was capped: the second
+    item of the result is ``True`` when there were more than ``limit``.
+    """
+    rows = list(users)
+    return (
+        [{"pk": str(user.pk), "label": str(user)} for user in rows[:limit]],
+        len(rows) > limit,
+    )
+
+
 class HijackPanel(Panel):
     """List hijackable users with one-click django-hijack links.
 
@@ -61,15 +78,40 @@ class HijackPanel(Panel):
     ``settings.HIJACK_USER_QUERYSET`` and renders a form per user that POSTs to
     ``hijack:acquire``, so you can impersonate another account straight from the
     debug toolbar. A status bar reflects the current ``hijack_history`` and
-    offers a release button while impersonating.
+    offers a release button while impersonating. A search box finds users past
+    the cap through the user model's admin ``search_fields``.
+
+    Subclass the panel to change ``user_limit`` or ``admin_site`` (a dotted
+    path to the ``AdminSite`` whose user ``ModelAdmin`` drives the search).
     """
 
     title = _("Hijack")
     nav_title = _("Hijack")
     template = "debug_toolbar_hijack/panel.html"
 
-    # Cap the listing so a large user table doesn't blow up the panel.
+    # Cap the listing and search results so a large user table stays cheap.
     user_limit = 100
+    # The AdminSite whose user ModelAdmin provides the search fields.
+    admin_site = DEFAULT_ADMIN_SITE
+
+    @classmethod
+    def get_urls(cls) -> list[URLPattern | URLResolver]:
+        from debug_toolbar_hijack.views import search_users
+
+        return [
+            path(
+                "hijack/search/",
+                search_users,
+                {"panel_class": cls},
+                name="hijack_search",
+            )
+        ]
+
+    @property
+    def scripts(self) -> list[str]:
+        scripts: list[str] = super().scripts
+        scripts.append(static("debug_toolbar_hijack/js/panel.js"))
+        return scripts
 
     @property
     def nav_subtitle(self) -> str:
@@ -92,12 +134,10 @@ class HijackPanel(Panel):
         truncated = False
         if hijacker is not None and is_authenticated:
             # Fetch one extra row to tell whether the list was capped.
-            rows = list(get_hijackable_users(hijacker)[: self.user_limit + 1])
-            truncated = len(rows) > self.user_limit
-            users = [
-                {"pk": str(user.pk), "label": str(user)}
-                for user in rows[: self.user_limit]
-            ]
+            users, truncated = serialize_users(
+                get_hijackable_users(hijacker)[: self.user_limit + 1],
+                self.user_limit,
+            )
 
         self.record_stats(  # type: ignore[no-untyped-call]
             {
@@ -111,6 +151,7 @@ class HijackPanel(Panel):
                 "csrf_token": get_token(request),
                 "acquire_url": reverse("hijack:acquire"),
                 "release_url": reverse("hijack:release"),
+                "search_url": reverse("djdt:hijack_search"),
                 "next": request.get_full_path(),
             }
         )

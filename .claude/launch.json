@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hijack-demo",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["tests/demo/manage.py", "demo"],
+      "port": 8765,
+      "autoPort": true
+    }
+  ]
+}

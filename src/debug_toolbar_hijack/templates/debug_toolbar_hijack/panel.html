@@ -15,34 +15,40 @@
   {% endif %}
 </div>
 {% if users %}
-  <table>
-    <thead>
-      <tr>
-        <th>{% translate "User" %}</th>
-        <th>{% translate "Action" %}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for user in users %}
-        <tr>
-          <td>{{ user.label }}</td>
-          <td>
-            <form action="{{ acquire_url }}" method="post">
-              <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-              <input type="hidden" name="user_pk" value="{{ user.pk }}">
-              <input type="hidden" name="next" value="{{ next }}">
-              <button type="submit">{% translate "Hijack" %}</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% if truncated %}
-    <p class="djdt-hijack-truncated">
-      {% blocktranslate count limit=user_limit %}Showing the first {{ limit }} user.{% plural %}Showing the first {{ limit }} users.{% endblocktranslate %}
+  {% blocktranslate asvar truncated_text count limit=user_limit %}Showing the first {{ limit }} user.{% plural %}Showing the first {{ limit }} users.{% endblocktranslate %}
+  <div class="djdt-hijack-users">
+    <p data-djdt-styles="marginBottom:8px">
+      <label for="djdt-hijack-search">{% translate "Search users:" %}</label>
+      <input
+        type="search"
+        id="djdt-hijack-search"
+        class="djdt-hijack-search"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded="false"
+        aria-controls="djdt-hijack-listbox"
+        autocomplete="off"
+        spellcheck="false"
+        data-search-url="{{ search_url }}"
+        data-no-results-text="{% translate "No matching users" %}"
+        data-truncated-text="{{ truncated_text }}"
+        data-djdt-styles="width:24em;maxWidth:100%;padding:2px 4px;border:1px solid var(--djdt-button-border-color);background:var(--djdt-background-color);color:var(--djdt-font-color)"
+      >
     </p>
-  {% endif %}
+    <p class="djdt-hijack-search-status djdt-hidden" aria-live="polite"></p>
+    {% if truncated %}
+      <p class="djdt-hijack-truncated">{{ truncated_text }}</p>
+    {% endif %}
+    <ul id="djdt-hijack-listbox" role="listbox" aria-label="{% translate "Hijackable users" %}">
+      {% for user in users %}
+        {% include "debug_toolbar_hijack/user_option.html" with option_id=forloop.counter %}
+      {% endfor %}
+    </ul>
+    {# panel.js clones this for each search result. #}
+    <template class="djdt-hijack-option-template">
+      {% include "debug_toolbar_hijack/user_option.html" with user=None option_id=None %}
+    </template>
+  </div>
 {% else %}
   <p>{% translate "No users available to hijack." %}</p>
 {% endif %}

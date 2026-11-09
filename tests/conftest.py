@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from debug_toolbar import middleware
 from debug_toolbar.toolbar import DebugToolbar
 from django.contrib.auth.models import AnonymousUser, User
 from django.contrib.sessions.backends.db import SessionStore
@@ -15,6 +17,20 @@ from tests.utils import MakePanel
 
 def _get_response(request: HttpRequest) -> HttpResponse:
     return HttpResponse("<html><body></body></html>")
+
+
+@pytest.fixture(autouse=True)
+def _reset_show_toolbar_cache() -> Iterator[None]:
+    """Forget the cached ``SHOW_TOOLBAR_CALLBACK``.
+
+    django-debug-toolbar caches the resolved callback and doesn't clear it when
+    ``DEBUG_TOOLBAR_CONFIG`` is overridden, so tests would leak it.
+    """
+    cached = getattr(middleware, "show_toolbar_func_or_path", None)
+    clear = getattr(cached, "cache_clear", lambda: None)
+    clear()
+    yield
+    clear()
 
 
 @pytest.fixture

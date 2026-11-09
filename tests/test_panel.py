@@ -115,6 +115,10 @@ def test_cap_sets_truncated(
     assert labels(panel) == ["a", "b"]
     assert stats(panel)["truncated"] is True
     assert "Showing the first 2 users." in panel.content
+    # The note sits above the list.
+    assert panel.content.index("Showing the first 2 users.") < panel.content.index(
+        'role="listbox"'
+    )
 
 
 def test_at_cap_is_not_truncated(
@@ -128,7 +132,7 @@ def test_at_cap_is_not_truncated(
 
     assert stats(panel)["truncated"] is False
     assert panel.nav_subtitle == "2 hijackable"
-    assert "Showing the first" not in panel.content
+    assert 'class="djdt-hijack-truncated"' not in panel.content
 
 
 def test_default_cap_subtitle(make_panel: MakePanel, admin_user: User) -> None:
@@ -203,4 +207,4 @@ def test_template_renders(make_panel: MakePanel, admin_user: User) -> None:
     data = stats(panel)
     assert f'action="{data["acquire_url"]}"' in content
     assert f'name="user_pk" value="{bob.pk}"' in content
-    assert "<td>bob</td>" in content
+    assert '<span class="djdt-hijack-label">bob</span>' in content
