@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-09
+
 ### Added
 
 - Release mise tasks that work with the protected `main` branch. `mise run release:prepare <version|bump>` bumps the version, moves the `[Unreleased]` changelog entries under the new version, commits on a `release/vX` branch and opens a PR. After the PR is merged, `mise run release:tag` tags the merge and, with `--push`, pushes only the tag. The `Release` workflow now fails if the tag doesn't match the `pyproject.toml` version.
@@ -28,5 +30,6 @@ First beta release.
 - The panel no longer crashes when `HIJACK_USER_QUERYSET` is unset.
 - The user list is sorted by the user model's `USERNAME_FIELD` instead of a hard-coded `username`, so custom user models work.
 
-[Unreleased]: https://github.com/uiuc-csid/django-debug-toolbar-hijack/compare/v0.1.0b1...HEAD
+[Unreleased]: https://github.com/uiuc-csid/django-debug-toolbar-hijack/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/uiuc-csid/django-debug-toolbar-hijack/compare/v0.1.0b1...v0.1.0
 [0.1.0b1]: https://github.com/uiuc-csid/django-debug-toolbar-hijack/releases/tag/v0.1.0b1
