@@ -1,0 +1,15 @@
+{% load i18n %}
+<li
+  {% if option_id %}id="djdt-hijack-option-{{ option_id }}"{% endif %}
+  role="option"
+  aria-selected="false"
+  data-djdt-styles="display:flex;alignItems:center;justifyContent:space-between;gap:8px;padding:2px 4px;borderBottom:1px solid var(--djdt-button-border-color)"
+>
+  <span class="djdt-hijack-label">{{ user.label }}</span>
+  <form action="{{ acquire_url }}" method="post">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    <input type="hidden" name="user_pk" value="{{ user.pk }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">{% translate "Hijack" %}</button>
+  </form>
+</li>

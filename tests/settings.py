@@ -19,9 +19,11 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.staticfiles",
     "debug_toolbar",
     "hijack",
     "debug_toolbar_hijack",
+    "tests.testapp",
 ]
 
 MIDDLEWARE = [
@@ -48,13 +50,15 @@ TEMPLATES = [
     }
 ]
 
+STATIC_URL = "/static/"
+
 INTERNAL_IPS = ["127.0.0.1"]
 
 DEBUG_TOOLBAR_PANELS = [
     "debug_toolbar_hijack.panels.HijackPanel",
 ]
 
-DEBUG_TOOLBAR_CONFIG = {
+DEBUG_TOOLBAR_CONFIG: dict[str, object] = {
     # The toolbar refuses to run under tests unless this is disabled.
     "IS_RUNNING_TESTS": False,
 }
