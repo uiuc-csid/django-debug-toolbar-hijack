@@ -15,8 +15,11 @@ name: Release
 #   2. In GitHub, go to Settings > Environments and create an environment named
 #      "pypi". Optionally add required reviewers and restrict it to tags
 #      matching "v*".
-# Then release with `mise run release <version|bump>`, which bumps the version,
-# updates CHANGELOG.md, commits and tags; pushing the tag runs this workflow.
+# Then release in two steps, since main only accepts PRs that pass CI:
+#   1. `mise run release:prepare <version|bump>` bumps the version and updates
+#      CHANGELOG.md on a release/vX branch and opens a PR to main.
+#   2. After the PR is merged, `mise run release:tag --push` tags the merge on
+#      main and pushes only the tag, which runs this workflow.
 
 on:
   push:

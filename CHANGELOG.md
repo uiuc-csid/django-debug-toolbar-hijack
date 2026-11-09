@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- A `release` mise task (`mise run release <version|bump>`) that bumps the version, moves the `[Unreleased]` changelog entries under the new version, and commits and tags the release. The `Release` workflow now fails if the tag doesn't match the `pyproject.toml` version.
+- Release mise tasks that work with the protected `main` branch. `mise run release:prepare <version|bump>` bumps the version, moves the `[Unreleased]` changelog entries under the new version, commits on a `release/vX` branch and opens a PR. After the PR is merged, `mise run release:tag` tags the merge and, with `--push`, pushes only the tag. The `Release` workflow now fails if the tag doesn't match the `pyproject.toml` version.
 
 ## [0.1.0b1] - 2026-11-09
 

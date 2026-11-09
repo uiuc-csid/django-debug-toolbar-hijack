@@ -170,15 +170,16 @@ mise run ci
 
 `mise run ci` runs the `lint`, `typecheck` and `test` tasks. The others are:
 
-| Task                    | What it does                                                                        |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `mise run lint`         | Every hk check: ruff, ruff format, mypy, whitespace, Markdown                       |
-| `mise run fix`          | Every hk fixer                                                                      |
-| `mise run typecheck`    | mypy in strict mode with django-stubs                                               |
-| `mise run test`         | pytest with coverage                                                                |
-| `mise run test:lowest`  | pytest against the lowest allowed versions of the direct dependencies               |
-| `mise run build`        | Build the sdist and wheel into `dist/`                                              |
-| `mise run release`      | Bump the version, update the changelog, commit and tag; see [Releasing](#releasing) |
+| Task                       | What it does                                                                                               |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `mise run lint`            | Every hk check: ruff, ruff format, mypy, whitespace, Markdown                                              |
+| `mise run fix`             | Every hk fixer                                                                                             |
+| `mise run typecheck`       | mypy in strict mode with django-stubs                                                                      |
+| `mise run test`            | pytest with coverage                                                                                       |
+| `mise run test:lowest`     | pytest against the lowest allowed versions of the direct dependencies                                      |
+| `mise run build`           | Build the sdist and wheel into `dist/`                                                                     |
+| `mise run release:prepare` | Bump the version and update the changelog on a branch, then open a release PR; see [Releasing](#releasing) |
+| `mise run release:tag`     | Tag the merged release and optionally push the tag; see [Releasing](#releasing)                            |
 
 ### Demo server
 
@@ -199,28 +200,47 @@ One-time setup, before the first release:
 1. On PyPI, add a GitHub trusted publisher (under [your account's publishing settings](https://pypi.org/manage/account/publishing/) before the project exists, or the project's **Settings → Publishing** after) with project name `django-debug-toolbar-hijack`, this repository's owner and name, workflow `release.yml`, and environment `pypi`.
 2. On GitHub, create an environment named `pypi` under **Settings → Environments**. Optionally add required reviewers and restrict it to `v*` tags.
 
-To release, from an up-to-date, clean `main` with the changes listed under `[Unreleased]` in `CHANGELOG.md`:
+`main` is protected: changes land only through pull requests that pass CI. So a release takes two steps, a release PR and then a tag.
+
+**1. Open the release PR.** From an up-to-date, clean `main` with the changes listed under `[Unreleased]` in `CHANGELOG.md`:
 
 ```bash
-mise run release --dry-run beta
+mise run release:prepare --dry-run beta
 ```
 
 ```bash
-mise run release beta
+mise run release:prepare beta
 ```
 
 The argument is an explicit version (such as `0.1.0b2`) or a [`uv version --bump`](https://docs.astral.sh/uv/reference/cli/#uv-version) keyword: `major`, `minor`, `patch`, `stable`, `alpha`, `beta`, `rc`, `post` or `dev`. The task:
 
-1. Refuses to run unless the working tree is clean, the branch is `main` and it matches `origin/main`, the new version is newer than the current one, and its tag doesn't exist locally or on `origin`.
-2. Runs `mise run ci`.
-3. Bumps the version in `pyproject.toml` and `uv.lock` with `uv version`.
-4. Moves the `[Unreleased]` entries in `CHANGELOG.md` under a dated heading for the new version and updates the compare links. It refuses if `[Unreleased]` is empty, unless the new version is a pre-release that follows a pre-release of the same version (such as `0.1.0b1` → `0.1.0b2`); that release is noted as having no changes.
-5. Commits `Release vX` and creates the annotated tag `vX`.
-6. Prints the command to push the commit and tag, or runs it with `--push`.
+1. Refuses to run unless the working tree is clean, the branch is `main` and it matches `origin/main`, the new version is newer than the current one, and neither the tag `vX` nor the branch `release/vX` exists locally or on `origin`.
+2. Builds the new `CHANGELOG.md`: the `[Unreleased]` entries move under a dated heading for the new version and the compare links are updated. It refuses if `[Unreleased]` is empty, unless the new version is a pre-release that follows a pre-release of the same version (such as `0.1.0b1` → `0.1.0b2`); that release is noted as having no changes.
+3. Runs `mise run ci`.
+4. Creates the branch `release/vX` from `main`, bumps the version in `pyproject.toml` and `uv.lock` with `uv version`, writes the changelog and commits `Release vX`.
+5. Pushes the branch and opens a PR to `main` with `gh pr create`. The PR body is the new changelog section and the next step.
 
-`--dry-run` runs the checks, then shows every other step, the new version and the `CHANGELOG.md` diff without changing anything. All checks, including the changelog one, run before anything is modified.
+`--no-pr` stops after the local commit and prints the push and `gh pr create` commands. `--dry-run` runs the checks, then shows every other step, the new version, the `CHANGELOG.md` diff and the PR body without changing anything. All checks run before anything is modified. The task never pushes to `main` and never creates a tag.
 
-Pushing the tag starts the `Release` workflow, which checks that the tag matches the `pyproject.toml` version, then builds the sdist and wheel and publishes them to PyPI.
+**2. Tag the release.** Once the PR is merged, update `main` and tag it:
+
+```bash
+git switch main && git pull --ff-only
+```
+
+```bash
+mise run release:tag --dry-run
+```
+
+```bash
+mise run release:tag --push
+```
+
+The task refuses to run unless the working tree is clean and `main` matches `origin/main`. It reads the version with `uv version --short`, checks that `CHANGELOG.md` has a section for it and that the tag `vX` doesn't exist locally or on `origin`, then creates the annotated tag `vX`.
+
+The tag goes on the commit that set the version on `main` (the merge of the release PR), not necessarily `HEAD`. If other PRs were merged after the release PR, the task warns and lists them: they aren't part of the release, so the published package matches what the release PR and its changelog describe.
+
+Without `--push`, the task prints the push command instead of running it. `--push` pushes only the tag (`git push origin refs/tags/vX`), which starts the `Release` workflow: it checks that the tag matches the `pyproject.toml` version, then builds the sdist and wheel and publishes them to PyPI.
 
 ## License
 
