@@ -5,4 +5,10 @@ import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Builtin
 steps {
     ["ruff"] = Builtins.ruff
     ["ruff-format"] = Builtins.ruff_format
+    // Builtins.markdown_lint targets markdownlint-cli; swap in markdownlint-cli2,
+    // which reads .markdownlint-cli2.jsonc.
+    ["markdownlint-cli2"] = (Builtins.markdown_lint) {
+        check = "markdownlint-cli2 {{ files }}"
+        fix = "markdownlint-cli2 --fix {{ files }}"
+    }
 }

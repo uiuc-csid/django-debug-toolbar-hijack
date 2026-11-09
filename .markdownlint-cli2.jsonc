@@ -1,0 +1,81 @@
+{
+  // Base config: applies to every Markdown file (README.md, docs, etc.).
+  "config": {
+    "default": true,
+
+    // MD013/line-length: Disabled because build commands and strict
+    // guidance bullet points often exceed standard line limits.
+    "MD013": false,
+
+    // MD024/no-duplicate-heading: Allow sibling headings because
+    // "Build", "Test", or "Deploy" headings often repeat across sections.
+    "MD024": {
+      "siblings_only": true
+    },
+
+    // MD032/blanks-around-lists: Disabled for compact nested guidance lists.
+    "MD032": false,
+
+    // MD033/no-inline-html: Allowed if you use HTML anchors or
+    // formatting tags inside your guide.
+    "MD033": false
+  },
+
+  "overrides": [
+    {
+      // CLAUDE.md is a thin pointer stub that imports AGENTS.md via the
+      // `@AGENTS.md` syntax. Kept strict -- it should stay short and tidy --
+      // but MD041 is relaxed so the import line may lead the file if the
+      // heading is ever dropped.
+      "filter": ["**/CLAUDE.md"],
+      "combine": "merge",
+      "config": {
+        "MD041": false
+      }
+    },
+    {
+      // AGENTS.md is the canonical agent-instruction doc: emoji headings run
+      // flush against their bullet lists, and guidance nests at 4 spaces.
+      "filter": ["**/AGENTS.md"],
+      "combine": "merge",
+      "config": {
+        // MD022/blanks-around-headings: section headings sit directly on top
+        // of their bullet list.
+        "MD022": false,
+        // MD007/ul-indent: nested guidance bullets use 4-space indents.
+        "MD007": { "indent": 4 },
+        // MD036/no-emphasis-as-heading: bold "**Key:** value" bullets.
+        "MD036": false
+      }
+    },
+    {
+      // Implementation plans written by agents (docs/plans, docs/old-plans,
+      // .agents/plans). Section headings sit directly on their text.
+      "filter": [
+        "**/.agents/plans/**/*.md",
+        "**/.agents/archived-plans/**/*.md"
+      ],
+      "combine": "merge",
+      "config": {
+        // MD022/blanks-around-headings
+        "MD022": false
+      }
+    },
+    {
+      // Agent skills (.agents/skills/**, .claude/skills/**). Same prose shape
+      // as AGENTS.md, plus YAML frontmatter ahead of the title.
+      "filter": ["**/skills/**/*.md"],
+      "combine": "merge",
+      "config": {
+        // MD041/first-line-heading: skills open with YAML frontmatter.
+        "MD041": false,
+        // MD022/blanks-around-headings: headings sit directly on their lists.
+        "MD022": false,
+        // MD007/ul-indent: nested workflow steps use 4-space indents.
+        "MD007": { "indent": 4 },
+        // MD036/no-emphasis-as-heading: bold "**Step:** detail" bullets.
+        "MD036": false
+      }
+    }
+  ]
+}
