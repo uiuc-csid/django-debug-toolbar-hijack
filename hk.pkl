@@ -4,9 +4,12 @@ import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Builtin
 
 // ruff and mypy come from the uv `dev` group; mise activates .venv (and
 // `mise deps` keeps it synced), so the builtins find the locked versions.
-steps {
+local ruff = new Mapping<String, Step> {
     ["ruff"] = Builtins.ruff
     ["ruff-format"] = Builtins.ruff_format
+}
+
+local linters = (ruff) {
     // The Django plugin needs the whole project, so mypy ignores {{ files }}.
     ["mypy"] = (Builtins.mypy) {
         check = "mypy src tests"
@@ -18,5 +21,21 @@ steps {
     ["markdownlint-cli2"] = (Builtins.markdown_lint) {
         check = "markdownlint-cli2 {{ files }}"
         fix = "markdownlint-cli2 --fix {{ files }}"
+    }
+}
+
+hooks {
+    // Keep commits fast: only ruff's fixers run on staged files. CI runs `check`.
+    ["pre-commit"] {
+        fix = true
+        stash = "git"
+        steps = ruff
+    }
+    ["check"] {
+        steps = linters
+    }
+    ["fix"] {
+        fix = true
+        steps = linters
     }
 }

@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+#MISE description="Bump the version, update CHANGELOG.md, then commit and tag a release"
+#USAGE arg "<version>" help="An explicit version (e.g. 0.1.0b2) or a `uv version --bump` keyword: major, minor, patch, stable, alpha, beta, rc, post or dev"
+#USAGE flag "-n --dry-run" help="Show every step, the new version and the CHANGELOG.md diff without changing anything"
+#USAGE flag "--push" help="Push the release commit and tag to origin (this triggers the Release workflow)"
+#
+# Releases are cut from an up-to-date, clean `main`. Every check (including
+# the CHANGELOG.md rewrite) runs before anything is modified, so a refusal
+# leaves the tree untouched.
+#
+# Empty [Unreleased] rule: a release must have changelog entries, except a
+# pre-release that follows another pre-release of the same version (for
+# example 0.1.0b1 -> 0.1.0b2 or 0.1.0b2 -> 0.1.0rc1). Such a release gets a
+# "No changes since X." line. A final release (0.1.0rc1 -> 0.1.0) or a
+# pre-release of a new version (0.1.0b1 -> 0.2.0b1) always needs entries.
+set -euo pipefail
+
+bump_keywords="major minor patch stable alpha beta rc post dev"
+changelog=CHANGELOG.md
+branch=main
+remote=origin
+
+version_arg=${usage_version:?missing version argument}
+dry_run=false
+push=false
+[ "${usage_dry_run:-false}" = true ] && dry_run=true
+[ "${usage_push:-false}" = true ] && push=true
+
+cd "${MISE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+
+step() { printf '\n==> %s\n' "$*"; }
+info() { printf '    %s\n' "$*"; }
+die() {
+	printf 'error: %s\n' "$*" >&2
+	exit 1
+}
+# Run a command that changes something, or only print it in a dry run.
+run() {
+	if $dry_run; then
+		printf '    [dry-run] would run:'
+		printf ' %q' "$@"
+		printf '\n'
+	else
+		printf '    $'
+		printf ' %q' "$@"
+		printf '\n'
+		"$@"
+	fi
+}
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+if $dry_run; then
+	printf 'Dry run: nothing will be changed.\n'
+fi
+
+# --- 1. Preconditions --------------------------------------------------------
+step "1. Check the repository state"
+
+[ -z "$(git status --porcelain)" ] || die "the working tree is not clean; commit or stash your changes first"
+info "working tree is clean"
+
+current_branch=$(git symbolic-ref --short -q HEAD || true)
+[ "$current_branch" = "$branch" ] || die "releases are cut from '$branch', but the current branch is '${current_branch:-(detached HEAD)}'"
+info "on branch $branch"
+
+git fetch --quiet "$remote" "$branch" || die "could not fetch $remote/$branch"
+local_rev=$(git rev-parse HEAD)
+remote_rev=$(git rev-parse "refs/remotes/$remote/$branch")
+if [ "$local_rev" != "$remote_rev" ]; then
+	read -r ahead behind < <(git rev-list --left-right --count "HEAD...$remote/$branch")
+	die "$branch is not up to date with $remote/$branch ($ahead ahead, $behind behind)"
+fi
+info "$branch is up to date with $remote/$branch"
+
+current_version=$(uv version --short)
+case " $bump_keywords " in
+*" $version_arg "*) uv_version_args=(--bump "$version_arg") ;;
+*) uv_version_args=("$version_arg") ;;
+esac
+new_version=$(uv version "${uv_version_args[@]}" --dry-run --short) || die "uv could not compute a new version from '$version_arg'"
+
+# Compare with packaging (a dependency of the dev group, so it's in .venv).
+# Prints whether the new and current versions are pre-releases and whether
+# they share a release (e.g. 0.1.0b1 and 0.1.0rc1 both release 0.1.0).
+read -r new_is_pre current_is_pre same_release < <(
+	python - "$current_version" "$new_version" <<'EOF'
+import sys
+from packaging.version import Version
+
+current, new = map(Version, sys.argv[1:])
+if new <= current:
+    sys.exit(f"error: {new} is not newer than the current version {current}")
+print(
+    str(new.is_prerelease).lower(),
+    str(current.is_prerelease).lower(),
+    str(new.release == current.release).lower(),
+)
+EOF
+) || exit 1
+tag="v$new_version"
+info "version: $current_version -> $new_version (tag $tag)"
+
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+	die "tag $tag already exists locally"
+fi
+set +e
+git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" >/dev/null
+ls_remote_status=$?
+set -e
+case $ls_remote_status in
+0) die "tag $tag already exists on $remote" ;;
+2) info "tag $tag does not exist locally or on $remote" ;;
+*) die "could not list tags on $remote" ;;
+esac
+
+# Build the new CHANGELOG.md now, so an empty [Unreleased] is caught before
+# anything is changed.
+grep -q '^## \[Unreleased\]' "$changelog" || die "$changelog has no '## [Unreleased]' section"
+if grep -q "^## \[$new_version\]" "$changelog"; then
+	die "$changelog already has a section for $new_version"
+fi
+empty_note=""
+if [ "$new_is_pre" = true ] && [ "$current_is_pre" = true ] && [ "$same_release" = true ]; then
+	empty_note="No changes since $current_version."
+fi
+release_date=$(date +%Y-%m-%d)
+new_changelog="$tmpdir/$changelog"
+set +e
+awk -v version="$new_version" -v date="$release_date" -v tag="$tag" -v note="$empty_note" '
+function flush(   i, first, last) {
+	first = 1; last = n
+	while (first <= last && body[first] ~ /^[[:space:]]*$/) first++
+	while (last >= first && body[last] ~ /^[[:space:]]*$/) last--
+	if (first > last && note == "") exit 3
+	print ""
+	print "## [" version "] - " date
+	print ""
+	if (first > last) print note
+	for (i = first; i <= last; i++) print body[i]
+	print ""
+	state = 2
+}
+state == 0 {
+	print
+	if ($0 ~ /^## \[Unreleased\]/) state = 1
+	next
+}
+state == 1 {
+	if ($0 ~ /^## \[/ || $0 ~ /^\[[^]]+\]: /) flush()
+	else { body[++n] = $0; next }
+}
+state == 2 && /^\[Unreleased\]: / {
+	start = index($0, "/compare/")
+	stop = index($0, "...HEAD")
+	if (start && stop > start) {
+		# "[Unreleased]: " is 14 characters; keep the URL through "/compare/".
+		prefix = substr($0, 15, start - 6)
+		base = substr($0, start + 9, stop - start - 9)
+		print "[Unreleased]: " prefix tag "...HEAD"
+		print "[" version "]: " prefix base "..." tag
+		links = 1
+		next
+	}
+}
+{ print }
+END {
+	if (state == 1) flush()
+	if (!links) exit 4
+}
+' "$changelog" >"$new_changelog"
+awk_status=$?
+set -e
+case $awk_status in
+0)
+	if [ -n "$empty_note" ] && grep -qF -- "$empty_note" "$new_changelog"; then
+		info "$changelog: [Unreleased] is empty; [$new_version] - $release_date will say \"$empty_note\""
+	else
+		info "$changelog: [Unreleased] entries will move under [$new_version] - $release_date"
+	fi
+	;;
+3) die "the [Unreleased] section of $changelog is empty; add entries first (only a pre-release that follows a pre-release of the same version may be empty)" ;;
+4) info "warning: no '[Unreleased]: .../compare/<tag>...HEAD' link in $changelog; compare links not updated" ;;
+*) die "could not update $changelog" ;;
+esac
+
+# --- 2. CI -------------------------------------------------------------------
+step "2. Run CI"
+run mise run ci
+
+# From here on the tree is modified; say how to back out if a step fails.
+if ! $dry_run; then
+	trap 'rm -rf "$tmpdir"; printf "\nerror: the release did not finish. To undo local changes: git checkout -- pyproject.toml uv.lock %s\n" "$changelog" >&2' ERR
+fi
+
+# --- 3. Version --------------------------------------------------------------
+step "3. Bump the version to $new_version"
+run uv version "${uv_version_args[@]}"
+if ! $dry_run; then
+	[ "$(uv version --short)" = "$new_version" ] || die "uv set an unexpected version: $(uv version --short)"
+else
+	info "pyproject.toml and uv.lock: $current_version -> $new_version"
+fi
+
+# --- 4. Changelog ------------------------------------------------------------
+step "4. Update $changelog"
+if $dry_run; then
+	diff -u --label "a/$changelog" --label "b/$changelog" "$changelog" "$new_changelog" || true
+else
+	cp "$new_changelog" "$changelog"
+	git --no-pager diff --stat
+fi
+
+# --- 5. Commit and tag -------------------------------------------------------
+step "5. Commit and tag $tag"
+run git add pyproject.toml uv.lock "$changelog"
+run git commit --quiet -m "Release $tag"
+run git tag -a "$tag" -m "Release $tag"
+
+# --- 6. Push -----------------------------------------------------------------
+push_cmd=(git push --atomic "$remote" "$branch" "$tag")
+step "6. Push"
+if $push; then
+	run "${push_cmd[@]}"
+	info "pushing $tag triggers the Release workflow (.github/workflows/release.yml), which publishes to PyPI"
+else
+	info "not pushing (pass --push to push). To publish, run:"
+	printf '\n       %s\n\n' "${push_cmd[*]}"
+	info "Pushing $tag triggers the Release workflow (.github/workflows/release.yml), which publishes to PyPI."
+fi
+
+if $dry_run; then
+	printf '\nDry run complete: %s -> %s. Nothing was changed.\n' "$current_version" "$new_version"
+elif $push; then
+	printf '\nReleased and pushed %s.\n' "$tag"
+else
+	printf '\nReleased %s locally.\n' "$tag"
+fi

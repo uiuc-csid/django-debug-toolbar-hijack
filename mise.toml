@@ -19,6 +19,10 @@ HK_MISE = 1
 [deps.uv]
 auto = true
 
+# Install hk's git hooks (run through mise) after `mise install`.
+[hooks]
+postinstall = "hk install --mise"
+
 [tasks.pre-commit]
 run = "hk run pre-commit"
 
