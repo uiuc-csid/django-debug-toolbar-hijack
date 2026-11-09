@@ -1,17 +1,51 @@
 [settings]
 # Read the Python version from .python-version
 idiomatic_version_file_enable_tools = ["python"]
+# Needed for [deps].
+experimental = true
 
 [tools]
 uv = "0.13.7"
 hk = "2.11.1"
 pkl = "0.33.0"
-ruff = "0.17.4"
 markdownlint-cli2 = "0.24.0"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
 HK_MISE = 1
 
+# `mise deps` runs `uv sync` when pyproject.toml or uv.lock change or .venv is
+# missing; `auto` also does it before `mise run` and `mise exec`.
+[deps.uv]
+auto = true
+
 [tasks.pre-commit]
 run = "hk run pre-commit"
+
+[tasks.lint]
+description = "Run every hk check (ruff, ruff format, mypy, whitespace, markdown)"
+run = "hk check --all"
+
+[tasks.fix]
+description = "Apply every hk fixer"
+run = "hk fix --all"
+
+[tasks.typecheck]
+description = "Type-check with mypy (strict, django-stubs)"
+run = "uv run mypy src tests"
+
+[tasks.test]
+description = "Run the test suite with coverage"
+run = "uv run pytest --cov"
+
+[tasks."test:lowest"]
+description = "Run the tests against the lowest allowed direct dependencies"
+run = "uv run --resolution lowest-direct --isolated pytest"
+
+[tasks.build]
+description = "Build the sdist and wheel"
+run = "uv build"
+
+[tasks.ci]
+description = "Lint, type-check and test"
+depends = ["lint", "typecheck", "test"]

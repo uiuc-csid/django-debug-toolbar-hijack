@@ -19,7 +19,7 @@ Decisions already made: when the setting is unset, the fallback mirrors `superus
 ## 1. Code changes — `src/debug_toolbar_hijack/`
 
 - **New `users.py`** with a public default the user can also reference in settings:
-  
+
   ```python
   def superusers_only(*, user):
       """Mirror hijack.permissions.superusers_only as a queryset."""
