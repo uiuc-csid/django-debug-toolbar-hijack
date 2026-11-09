@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     "debug_toolbar",
     "hijack",
     "debug_toolbar_hijack",
+    "tests.testapp",
 ]
 
 MIDDLEWARE = [

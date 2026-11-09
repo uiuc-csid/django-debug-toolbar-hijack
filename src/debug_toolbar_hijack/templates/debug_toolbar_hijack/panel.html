@@ -38,6 +38,11 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if truncated %}
+    <p class="djdt-hijack-truncated">
+      {% blocktranslate count limit=user_limit %}Showing the first {{ limit }} user.{% plural %}Showing the first {{ limit }} users.{% endblocktranslate %}
+    </p>
+  {% endif %}
 {% else %}
   <p>{% translate "No users available to hijack." %}</p>
 {% endif %}
