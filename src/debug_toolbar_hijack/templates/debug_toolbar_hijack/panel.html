@@ -1,0 +1,43 @@
+{% load i18n %}
+<div class="djdt-hijack-status">
+  {% if is_hijacked %}
+    <p>
+      {% blocktranslate %}Currently working as <strong>{{ current_user }}</strong>.{% endblocktranslate %}
+    </p>
+    <p>{% translate "Hijack history:" %} {{ hijack_history|join:" → " }}</p>
+    <form action="{{ release_url }}" method="post">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit">{% translate "Release hijack" %}</button>
+    </form>
+  {% else %}
+    <p>{% translate "Not currently impersonating anyone." %}</p>
+  {% endif %}
+</div>
+{% if users %}
+  <table>
+    <thead>
+      <tr>
+        <th>{% translate "User" %}</th>
+        <th>{% translate "Action" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+        <tr>
+          <td>{{ user.label }}</td>
+          <td>
+            <form action="{{ acquire_url }}" method="post">
+              <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+              <input type="hidden" name="user_pk" value="{{ user.pk }}">
+              <input type="hidden" name="next" value="{{ next }}">
+              <button type="submit">{% translate "Hijack" %}</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>{% translate "No users available to hijack." %}</p>
+{% endif %}

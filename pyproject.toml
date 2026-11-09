@@ -1,0 +1,21 @@
+[project]
+name = "django-debug-toolbar-hijack"
+version = "0.1.0"
+description = "A django-debug-toolbar panel for impersonating users via django-hijack"
+readme = "README.md"
+authors = [
+    { name = "Josh Asplund", email = "joshasplund@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "django>=5.2.19",
+    "django-debug-toolbar>=8.0.0",
+    "django-hijack>=3.7.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "debug_toolbar_hijack"
