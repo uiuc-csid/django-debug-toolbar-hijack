@@ -19,3 +19,9 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "debug_toolbar_hijack"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B", "DJ"]

@@ -1,0 +1,16 @@
+[settings]
+# Read the Python version from .python-version
+idiomatic_version_file_enable_tools = ["python"]
+
+[tools]
+uv = "0.13.7"
+hk = "2.11.1"
+pkl = "0.33.0"
+ruff = "0.17.4"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+HK_MISE = 1
+
+[tasks.pre-commit]
+run = "hk run pre-commit"
