@@ -178,6 +178,7 @@ mise run ci
 | `mise run test`         | pytest with coverage                                                                |
 | `mise run test:lowest`  | pytest against the lowest allowed versions of the direct dependencies               |
 | `mise run build`        | Build the sdist and wheel into `dist/`                                              |
+| `mise run release`      | Bump the version, update the changelog, commit and tag; see [Releasing](#releasing) |
 
 ### Demo server
 
@@ -198,20 +199,28 @@ One-time setup, before the first release:
 1. On PyPI, add a GitHub trusted publisher (under [your account's publishing settings](https://pypi.org/manage/account/publishing/) before the project exists, or the project's **Settings → Publishing** after) with project name `django-debug-toolbar-hijack`, this repository's owner and name, workflow `release.yml`, and environment `pypi`.
 2. On GitHub, create an environment named `pypi` under **Settings → Environments**. Optionally add required reviewers and restrict it to `v*` tags.
 
-To release:
+To release, from an up-to-date, clean `main` with the changes listed under `[Unreleased]` in `CHANGELOG.md`:
 
-1. Update `version` in `pyproject.toml` and add the release to `CHANGELOG.md`.
-2. Merge to `main`, then tag the release and push the tag:
+```bash
+mise run release --dry-run beta
+```
 
-   ```bash
-   git tag v0.1.0b1
-   ```
+```bash
+mise run release beta
+```
 
-   ```bash
-   git push origin v0.1.0b1
-   ```
+The argument is an explicit version (such as `0.1.0b2`) or a [`uv version --bump`](https://docs.astral.sh/uv/reference/cli/#uv-version) keyword: `major`, `minor`, `patch`, `stable`, `alpha`, `beta`, `rc`, `post` or `dev`. The task:
 
-The `Release` workflow builds the sdist and wheel and publishes them to PyPI.
+1. Refuses to run unless the working tree is clean, the branch is `main` and it matches `origin/main`, the new version is newer than the current one, and its tag doesn't exist locally or on `origin`.
+2. Runs `mise run ci`.
+3. Bumps the version in `pyproject.toml` and `uv.lock` with `uv version`.
+4. Moves the `[Unreleased]` entries in `CHANGELOG.md` under a dated heading for the new version and updates the compare links. It refuses if `[Unreleased]` is empty, unless the new version is a pre-release that follows a pre-release of the same version (such as `0.1.0b1` → `0.1.0b2`); that release is noted as having no changes.
+5. Commits `Release vX` and creates the annotated tag `vX`.
+6. Prints the command to push the commit and tag, or runs it with `--push`.
+
+`--dry-run` runs the checks, then shows every other step, the new version and the `CHANGELOG.md` diff without changing anything. All checks, including the changelog one, run before anything is modified.
+
+Pushing the tag starts the `Release` workflow, which checks that the tag matches the `pyproject.toml` version, then builds the sdist and wheel and publishes them to PyPI.
 
 ## License
 

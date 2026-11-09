@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- A `release` mise task (`mise run release <version|bump>`) that bumps the version, moves the `[Unreleased]` changelog entries under the new version, and commits and tags the release. The `Release` workflow now fails if the tag doesn't match the `pyproject.toml` version.
+
 ## [0.1.0b1] - 2026-11-09
 
 First beta release.
