@@ -69,8 +69,9 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: jdx/mise-action@v5.2.7
+      # This job doesn't check out the repo, so there is no mise.toml to read
+      # the uv version from. Keep this in sync with [tools] in mise.toml.
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
-          cache: true
-          install_args: uv
+          version: "0.13.7"
       - run: uv publish --trusted-publishing always
